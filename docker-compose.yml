@@ -1,0 +1,105 @@
+version: '3.9'
+
+services:
+  zookeeper:
+    image: zookeeper:3.9.4
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    restart: unless-stopped
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_BROKER_ID=1
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    depends_on:
+      - zookeeper
+    restart: unless-stopped
+    networks:
+      - app_networks
+  stock-db-host:
+    image: mysql:9.5.0
+    container_name: stock-db-host
+    environment:
+      - MYSQL_ROOT_PASSWORD=${STOCK_DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${STOCK_DB_NAME}
+      - MYSQL_USER=${STOCK_DB_USER}
+      - MYSQL_PASSWORD=${STOCK_DB_PASSWORD}
+    ports:
+      - "3316:3306"
+    volumes:
+      - ./mysql/stock/INIT.sql:/docker-entrypoint-initdb.d/INIT.sql:ro
+      - stock_data:/var/lib/mysql
+    networks:
+      - stock-db-networks
+    restart: unless-stopped
+
+  order-db-host:
+    image: mysql:9.5.0
+    container_name: order-db-host
+    environment:
+      - MYSQL_ROOT_PASSWORD=${ORDER_DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${ORDER_DB_NAME}
+      - MYSQL_USER=${ORDER_DB_USER}
+      - MYSQL_PASSWORD=${ORDER_DB_PASSWORD}
+    ports:
+      - "3326:3306"
+    volumes:
+      - ./mysql/order/INIT.sql:/docker-entrypoint-initdb.d/INIT.sql:ro
+      - order_data:/var/lib/mysql
+    networks:
+      - order-db-networks
+    restart: unless-stopped
+
+  stock-service:
+    build: ./Stock-Service
+    volumes:
+      - ./Stock-Service:/app
+    container_name: stock-service
+    env_file:
+      - ./Stock-Service/.env
+    ports:
+      - "8081:8081"
+    depends_on:
+      - kafka
+      - stock-db-host
+    networks:
+      - app_networks
+      - stock-db-networks
+    restart: unless-stopped
+
+  order-service:
+    build: ./Order-Service
+    volumes:
+      - ./Order-Service:/app
+    container_name: order-service
+    env_file:
+      - ./Order-Service/.env
+    ports:
+      - "8082:8082"
+    depends_on:
+      - kafka
+      - order-db-host
+    networks:
+      - app_networks
+      - order-db-networks
+    restart: unless-stopped
+
+networks:
+  stock-db-networks:
+    driver: bridge
+  order-db-networks:
+    driver: bridge
+  app_networks:
+    driver: bridge
+
+volumes:
+  order_data:
+  stock_data:
